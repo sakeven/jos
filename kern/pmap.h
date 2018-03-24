@@ -66,12 +66,17 @@ static inline physaddr_t
 page2pa(struct PageInfo *pp)
 {
 	// 计算出是第几个 page，其地址是什么
+	// 这里是因为，每个 page，都是按顺序与物理内存一一对应的。
+	// pages[0] 对应物理内存 [0, PGSIZE)
+	// 1 << PGSHIFT = PGSIZE
 	return (pp - pages) << PGSHIFT;
 }
 
+// 物理地址转换位表信息
 static inline struct PageInfo*
 pa2page(physaddr_t pa)
 {
+	// PGNUM 获得 pa 在 pages 里是第几个
 	if (PGNUM(pa) >= npages)
 		panic("pa2page called with invalid pa");
 	return &pages[PGNUM(pa)];

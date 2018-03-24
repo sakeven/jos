@@ -341,8 +341,18 @@ page_decref(struct PageInfo* pp)
 pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
-	// Fill this function in
-	return NULL;
+	pde_t *pde = pgdir + PDX(va);
+	if (!(*pde & PTE_P)) {
+		if (!create ) {
+			return NULL;
+		}
+		// create
+		struct PageInfo *pp = page_alloc(ALLOC_ZERO);
+		if (!pp) return NULL;
+		pp->pp_ref ++;
+		*pde = page2pa(pp) | PTE_P | PTE_W | PTE_U;
+	}
+	return (pte_t *) KADDR(PTE_ADDR(*pde)) + PTX(va);
 }
 
 //
@@ -359,7 +369,15 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
-	// Fill this function in
+	for (size_t offset = 0; offset < size; offset += PGSIZE) {
+		pte_t *pte = pgdir_walk(pgdir, (void *)va, 1);
+		if (!pte) {
+			panic("failed to pgdir_walk");
+		}
+		*pte =  pa | perm | PTE_P;
+		va += PGSIZE;
+		pa += PGSIZE;
+	}
 }
 
 //
@@ -390,7 +408,18 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
-	// Fill this function in
+	pte_t *pte = pgdir_walk(pgdir, va, 1);
+	if (!pte) {
+		return -E_NO_MEM;
+	}
+
+	pp->pp_ref ++;
+	if ((*pte) & PTE_P) {
+		tlb_invalidate(pgdir, va);
+		page_remove(pgdir, va);
+	}
+	*pte = page2pa(pp) | perm | PTE_P;
+	pgdir[PDX(va)] |= perm;
 	return 0;
 }
 
@@ -408,8 +437,17 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
-	// Fill this function in
-	return NULL;
+	pte_t *pte = pgdir_walk(pgdir, va, 0);
+	if (!pte) {
+		return NULL;
+	}
+
+	if (!((*pte) & PTE_P)) return NULL;
+
+	if (pte_store) {
+		*pte_store = pte;
+	}
+	return pa2page(PTE_ADDR(*pte));
 }
 
 //
@@ -430,7 +468,12 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 void
 page_remove(pde_t *pgdir, void *va)
 {
-	// Fill this function in
+	pte_t *pte;
+	struct PageInfo *pp = page_lookup(pgdir, va, &pte);
+	if (!pp) return;
+	*pte = 0;
+	page_decref(pp);
+	tlb_invalidate(pgdir, va);
 }
 
 //
